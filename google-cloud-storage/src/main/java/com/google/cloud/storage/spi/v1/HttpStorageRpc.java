@@ -726,7 +726,7 @@ public class HttpStorageRpc implements StorageRpc {
       range.append("bytes=").append(position).append("-").append(position + bytes - 1);
       HttpHeaders requestHeaders = req.getRequestHeaders();
       requestHeaders.setRange(range.toString());
-      InputStream in = req.executeAsInputStream();
+      InputStream in = req.executeMediaAsInputStream();
       String etag = req.getLastResponseHeaders().getETag();
       filterStream = new FilterInputStream(in) {
         @Override
