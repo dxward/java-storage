@@ -305,4 +305,9 @@ public class StorageRpcTestBase implements StorageRpc {
   public ServiceAccount getServiceAccount(String projectId) {
     throw new UnsupportedOperationException("Not implemented yet");
   }
+
+  @Override
+  public Tuple<String, InputStream> readStream(StorageObject from, Map<Option, ?> options, long position, int bytes) {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
 }

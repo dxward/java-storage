@@ -580,4 +580,6 @@ public interface StorageRpc extends ServiceRpc {
    * @throws StorageException upon failure
    */
   ServiceAccount getServiceAccount(String projectId);
+
+  Tuple<String, InputStream> readStream(StorageObject from, Map<Option, ?> options, long position, int bytes);
 }

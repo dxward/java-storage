@@ -27,21 +27,25 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Random;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
 import com.google.cloud.ReadChannel;
 import com.google.cloud.RestorableState;
 import com.google.cloud.Tuple;
 import com.google.cloud.storage.spi.StorageRpcFactory;
 import com.google.cloud.storage.spi.v1.StorageRpc;
 import com.google.common.collect.ImmutableMap;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Random;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 
 public class BlobReadChannelTest {
 
@@ -89,8 +93,8 @@ public class BlobReadChannelTest {
     byte[] result = randomByteArray(DEFAULT_CHUNK_SIZE);
     ByteBuffer firstReadBuffer = ByteBuffer.allocate(42);
     ByteBuffer secondReadBuffer = ByteBuffer.allocate(42);
-    expect(storageRpcMock.read(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", result));
+    expect(storageRpcMock.readStream(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(result)));
     replay(storageRpcMock);
     reader.read(firstReadBuffer);
     reader.read(secondReadBuffer);
@@ -111,12 +115,12 @@ public class BlobReadChannelTest {
     byte[] secondResult = randomByteArray(DEFAULT_CHUNK_SIZE);
     ByteBuffer firstReadBuffer = ByteBuffer.allocate(DEFAULT_CHUNK_SIZE);
     ByteBuffer secondReadBuffer = ByteBuffer.allocate(42);
-    expect(storageRpcMock.read(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", firstResult));
+    expect(storageRpcMock.readStream(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(firstResult)));
     expect(
-            storageRpcMock.read(
+            storageRpcMock.readStream(
                 BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, DEFAULT_CHUNK_SIZE, CUSTOM_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", secondResult));
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(secondResult)));
     replay(storageRpcMock);
     reader.read(firstReadBuffer);
     reader.read(secondReadBuffer);
@@ -130,8 +134,8 @@ public class BlobReadChannelTest {
     reader = new BlobReadChannel(options, BLOB_ID, EMPTY_RPC_OPTIONS);
     byte[] result = {};
     ByteBuffer readBuffer = ByteBuffer.allocate(DEFAULT_CHUNK_SIZE);
-    expect(storageRpcMock.read(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", result));
+    expect(storageRpcMock.readStream(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(result)));
     replay(storageRpcMock);
     assertEquals(-1, reader.read(readBuffer));
   }
@@ -142,8 +146,8 @@ public class BlobReadChannelTest {
     reader.seek(42);
     byte[] result = randomByteArray(DEFAULT_CHUNK_SIZE);
     ByteBuffer readBuffer = ByteBuffer.allocate(DEFAULT_CHUNK_SIZE);
-    expect(storageRpcMock.read(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 42, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", result));
+    expect(storageRpcMock.readStream(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 42, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(result)));
     replay(storageRpcMock);
     reader.read(readBuffer);
     assertArrayEquals(result, readBuffer.array());
@@ -180,14 +184,15 @@ public class BlobReadChannelTest {
     byte[] secondResult = randomByteArray(DEFAULT_CHUNK_SIZE);
     ByteBuffer firstReadBuffer = ByteBuffer.allocate(DEFAULT_CHUNK_SIZE);
     ByteBuffer secondReadBuffer = ByteBuffer.allocate(DEFAULT_CHUNK_SIZE);
-    expect(storageRpcMock.read(blobId.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag1", firstResult));
+    expect(storageRpcMock.readStream(blobId.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag1", (InputStream)new ByteArrayInputStream(firstResult)));
     expect(
-            storageRpcMock.read(
+            storageRpcMock.readStream(
                 blobId.toPb(), EMPTY_RPC_OPTIONS, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag2", secondResult));
+        .andReturn(Tuple.of("etag2", (InputStream)new ByteArrayInputStream(secondResult)));
     replay(storageRpcMock);
     reader.read(firstReadBuffer);
+    reader.seek(DEFAULT_CHUNK_SIZE);
     try {
       reader.read(secondReadBuffer);
       fail("Expected ReadChannel read to throw StorageException");
@@ -204,10 +209,10 @@ public class BlobReadChannelTest {
     byte[] secondResult = randomByteArray(DEFAULT_CHUNK_SIZE);
     ByteBuffer firstReadBuffer = ByteBuffer.allocate(42);
     ByteBuffer secondReadBuffer = ByteBuffer.allocate(DEFAULT_CHUNK_SIZE);
-    expect(storageRpcMock.read(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", firstResult));
-    expect(storageRpcMock.read(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 42, DEFAULT_CHUNK_SIZE))
-        .andReturn(Tuple.of("etag", secondResult));
+    expect(storageRpcMock.readStream(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(firstResult)));
+    expect(storageRpcMock.readStream(BLOB_ID.toPb(), EMPTY_RPC_OPTIONS, 42, DEFAULT_CHUNK_SIZE))
+        .andReturn(Tuple.of("etag", (InputStream)new ByteArrayInputStream(secondResult)));
     replay(storageRpcMock);
     reader = new BlobReadChannel(options, BLOB_ID, EMPTY_RPC_OPTIONS);
     reader.read(firstReadBuffer);

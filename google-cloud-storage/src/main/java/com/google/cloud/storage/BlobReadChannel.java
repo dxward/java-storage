@@ -18,6 +18,17 @@ package com.google.cloud.storage;
 
 import static com.google.cloud.RetryHelper.runWithRetries;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Serializable;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.ReadableByteChannel;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Callable;
+
 import com.google.api.services.storage.model.StorageObject;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.RestorableState;
@@ -25,13 +36,6 @@ import com.google.cloud.RetryHelper;
 import com.google.cloud.Tuple;
 import com.google.cloud.storage.spi.v1.StorageRpc;
 import com.google.common.base.MoreObjects;
-import java.io.IOException;
-import java.io.Serializable;
-import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.Callable;
 
 /** Default implementation for ReadChannel. */
 class BlobReadChannel implements ReadChannel {
@@ -43,14 +47,14 @@ class BlobReadChannel implements ReadChannel {
   private final Map<StorageRpc.Option, ?> requestOptions;
   private String lastEtag;
   private long position;
+  private long chunkEndPosition;
   private boolean isOpen;
   private boolean endOfStream;
   private int chunkSize = DEFAULT_CHUNK_SIZE;
 
   private final StorageRpc storageRpc;
   private final StorageObject storageObject;
-  private int bufferPos;
-  private byte[] buffer;
+  private ReadableByteChannel wrapped;
 
   BlobReadChannel(
       StorageOptions serviceOptions, BlobId blob, Map<StorageRpc.Option, ?> requestOptions) {
@@ -70,10 +74,6 @@ class BlobReadChannel implements ReadChannel {
             .setIsOpen(isOpen)
             .setEndOfStream(endOfStream)
             .setChunkSize(chunkSize);
-    if (buffer != null) {
-      builder.setPosition(position + bufferPos);
-      builder.setEndOfStream(false);
-    }
     return builder.build();
   }
 
@@ -85,7 +85,7 @@ class BlobReadChannel implements ReadChannel {
   @Override
   public void close() {
     if (isOpen) {
-      buffer = null;
+      closeQuietly();
       isOpen = false;
     }
   }
@@ -100,8 +100,7 @@ class BlobReadChannel implements ReadChannel {
   public void seek(long position) throws IOException {
     validateOpen();
     this.position = position;
-    buffer = null;
-    bufferPos = 0;
+    closeQuietly();
     endOfStream = false;
   }
 
@@ -111,52 +110,78 @@ class BlobReadChannel implements ReadChannel {
   }
 
   @Override
-  public int read(ByteBuffer byteBuffer) throws IOException {
+  public int read(final ByteBuffer byteBuffer) throws IOException {
     validateOpen();
-    if (buffer == null) {
-      if (endOfStream) {
-        return -1;
-      }
-      final int toRead = Math.max(byteBuffer.remaining(), chunkSize);
-      try {
-        Tuple<String, byte[]> result =
-            runWithRetries(
-                new Callable<Tuple<String, byte[]>>() {
-                  @Override
-                  public Tuple<String, byte[]> call() {
-                    return storageRpc.read(storageObject, requestOptions, position, toRead);
+    if (endOfStream) {
+      return -1;
+    }
+    final int toRead = Math.max(byteBuffer.remaining(), chunkSize);
+    final int buffPos = byteBuffer.position();
+    try {
+      Tuple<String, Integer> result =
+          runWithRetries(
+              new Callable<Tuple<String, Integer>>() {
+                @Override
+                public Tuple<String, Integer> call() throws Exception {
+                  String etag;
+                  if (wrapped == null) {
+                    Tuple<String, InputStream> result = storageRpc.readStream(storageObject, requestOptions, position, toRead);
+                    wrapped = Channels.newChannel(result.y());
+                    chunkEndPosition = position + toRead;
+                    etag = result.x();
+                  } else {
+                    etag = lastEtag;
                   }
-                },
-                serviceOptions.getRetrySettings(),
-                StorageImpl.EXCEPTION_HANDLER,
-                serviceOptions.getClock());
-        if (result.y().length > 0 && lastEtag != null && !Objects.equals(result.x(), lastEtag)) {
-          StringBuilder messageBuilder = new StringBuilder();
-          messageBuilder.append("Blob ").append(blob).append(" was updated while reading");
-          throw new IOException(messageBuilder.toString());
-        }
-        lastEtag = result.x();
-        buffer = result.y();
-      } catch (RetryHelper.RetryHelperException e) {
-        throw new IOException(e);
+                  try {
+                    byteBuffer.position(buffPos);
+                    int bytesRead = wrapped.read(byteBuffer);
+                    return Tuple.of(etag, bytesRead);
+                  } catch (Exception e) {
+                    // On error we close the underlying stream so we can re-request from the last offset
+                    closeQuietly();
+                    throw e;
+                  }
+                }
+              },
+              serviceOptions.getRetrySettings(),
+              StorageImpl.EXCEPTION_HANDLER,
+              serviceOptions.getClock());
+      if (result.y() > 0 && lastEtag != null && !Objects.equals(result.x(), lastEtag)) {
+        StringBuilder messageBuilder = new StringBuilder();
+        messageBuilder.append("Blob ").append(blob).append(" was updated while reading");
+        throw new IOException(messageBuilder.toString());
       }
-      if (toRead > buffer.length) {
+      lastEtag = result.x();
+      int bytesRead = result.y();
+
+      // Check for last chunk
+      if (bytesRead < 0) {
+        closeQuietly();
         endOfStream = true;
-        if (buffer.length == 0) {
-          buffer = null;
-          return -1;
-        }
+        return -1;
+      } else {
+        position += bytesRead;        
       }
+      
+      // Check for end of chunk
+      if (position >= chunkEndPosition) {
+        closeQuietly();        
+      }
+      return bytesRead;
+    } catch (RetryHelper.RetryHelperException e) {
+      throw new IOException(e);
     }
-    int toWrite = Math.min(buffer.length - bufferPos, byteBuffer.remaining());
-    byteBuffer.put(buffer, bufferPos, toWrite);
-    bufferPos += toWrite;
-    if (bufferPos >= buffer.length) {
-      position += buffer.length;
-      buffer = null;
-      bufferPos = 0;
+  }
+
+  private void closeQuietly() {
+    if (wrapped != null) {
+      try {
+        wrapped.close();
+      } catch (IOException e) {
+        // ignore
+      }
+      wrapped = null;
     }
-    return toWrite;
   }
 
   static class StateImpl implements RestorableState<ReadChannel>, Serializable {

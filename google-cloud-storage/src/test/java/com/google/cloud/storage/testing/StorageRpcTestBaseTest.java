@@ -19,6 +19,18 @@ package com.google.cloud.storage.testing;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
 import com.google.api.services.storage.model.Bucket;
 import com.google.api.services.storage.model.BucketAccessControl;
 import com.google.api.services.storage.model.HmacKey;
@@ -32,15 +44,6 @@ import com.google.api.services.storage.model.TestIamPermissionsResponse;
 import com.google.cloud.Tuple;
 import com.google.cloud.storage.spi.v1.RpcBatch;
 import com.google.cloud.storage.spi.v1.StorageRpc;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 
 public class StorageRpcTestBaseTest {
 
@@ -222,6 +225,18 @@ public class StorageRpcTestBaseTest {
           }
         };
   }
+  
+  @Test
+  public void testReadStream() {
+    rpc =
+        new Callable<Tuple<String, InputStream>>() {
+          @Override
+          public Tuple<String, InputStream> call() {
+            return STORAGE_RPC.readStream(OBJECT, OPTIONS, 0, 0);
+          }
+        };
+  }
+  
 
   @Test
   public void testReadOutputStream() {

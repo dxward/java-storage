@@ -1500,10 +1500,10 @@ public class StorageImplMockitoTest {
 
   @Test
   public void testReaderWithOptions() throws IOException {
-    doReturn(Tuple.of("etag", BLOB_CONTENT))
+    doReturn(Tuple.of("etag", new ByteArrayInputStream(BLOB_CONTENT)))
         .doThrow(UNEXPECTED_CALL_EXCEPTION)
         .when(storageRpcMock)
-        .read(BLOB_INFO2.toPb(), BLOB_SOURCE_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
+        .readStream(BLOB_INFO2.toPb(), BLOB_SOURCE_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
     initializeService();
     ReadChannel channel =
         storage.reader(
@@ -1513,10 +1513,10 @@ public class StorageImplMockitoTest {
 
   @Test
   public void testReaderWithDecryptionKey() throws IOException {
-    doReturn(Tuple.of("a", BLOB_CONTENT), Tuple.of("b", BLOB_SUB_CONTENT))
+    doReturn(Tuple.of("a", new ByteArrayInputStream(BLOB_CONTENT)), Tuple.of("b", new ByteArrayInputStream(BLOB_SUB_CONTENT)))
         .doThrow(UNEXPECTED_CALL_EXCEPTION)
         .when(storageRpcMock)
-        .read(BLOB_INFO2.toPb(), ENCRYPTION_KEY_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
+        .readStream(BLOB_INFO2.toPb(), ENCRYPTION_KEY_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
     initializeService();
     ReadChannel channel =
         storage.reader(BUCKET_NAME1, BLOB_NAME2, Storage.BlobSourceOption.decryptionKey(KEY));
@@ -1530,10 +1530,10 @@ public class StorageImplMockitoTest {
 
   @Test
   public void testReaderWithOptionsFromBlobId() throws IOException {
-    doReturn(Tuple.of("etag", BLOB_CONTENT))
+    doReturn(Tuple.of("etag", new ByteArrayInputStream(BLOB_CONTENT)))
         .doThrow(UNEXPECTED_CALL_EXCEPTION)
         .when(storageRpcMock)
-        .read(BLOB_INFO1.getBlobId().toPb(), BLOB_SOURCE_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
+        .readStream(BLOB_INFO1.getBlobId().toPb(), BLOB_SOURCE_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
     initializeService();
     ReadChannel channel =
         storage.reader(
@@ -1547,7 +1547,7 @@ public class StorageImplMockitoTest {
   public void testReaderFailure() throws IOException {
     doThrow(STORAGE_FAILURE)
         .when(storageRpcMock)
-        .read(BLOB_INFO2.getBlobId().toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
+        .readStream(BLOB_INFO2.getBlobId().toPb(), EMPTY_RPC_OPTIONS, 0, DEFAULT_CHUNK_SIZE);
     initializeService();
     ReadChannel channel = storage.reader(BUCKET_NAME1, BLOB_NAME2);
     assertNotNull(channel);

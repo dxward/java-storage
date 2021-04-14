@@ -20,6 +20,21 @@ import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.math.BigInteger;
+import java.net.FileNameMap;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
 import com.google.api.client.googleapis.batch.BatchRequest;
 import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
 import com.google.api.client.googleapis.json.GoogleJsonError;
@@ -68,24 +83,13 @@ import com.google.common.collect.Lists;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
+
 import io.opencensus.common.Scope;
 import io.opencensus.trace.AttributeValue;
 import io.opencensus.trace.Span;
 import io.opencensus.trace.Status;
 import io.opencensus.trace.Tracer;
 import io.opencensus.trace.Tracing;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.math.BigInteger;
-import java.net.FileNameMap;
-import java.net.URLConnection;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 
 public class HttpStorageRpc implements StorageRpc {
   public static final String DEFAULT_PROJECTION = "full";
@@ -709,6 +713,46 @@ public class HttpStorageRpc implements StorageRpc {
     }
   }
 
+  @Override
+  public Tuple<String, InputStream> readStream(
+      StorageObject from, Map<Option, ?> options, long position, int bytes) {
+    final Span span = startSpan(HttpStorageRpcSpans.SPAN_NAME_READ);
+    final Scope scope = tracer.withSpan(span);
+    InputStream filterStream = null;
+    try {
+      checkArgument(position >= 0, "Position should be non-negative, is " + position);
+      Get req = createReadRequest(from, options);
+      StringBuilder range = new StringBuilder();
+      range.append("bytes=").append(position).append("-").append(position + bytes - 1);
+      HttpHeaders requestHeaders = req.getRequestHeaders();
+      requestHeaders.setRange(range.toString());
+      InputStream in = req.executeAsInputStream();
+      String etag = req.getLastResponseHeaders().getETag();
+      filterStream = new FilterInputStream(in) {
+        @Override
+        public void close() throws IOException {
+          super.close();
+          scope.close();
+          span.end(HttpStorageRpcSpans.END_SPAN_OPTIONS);
+        }
+      };
+      return Tuple.of(etag, filterStream);
+    } catch (IOException ex) {
+      span.setStatus(Status.UNKNOWN.withDescription(ex.getMessage()));
+      StorageException serviceException = StorageException.translate(ex);
+      if (serviceException.getCode() == SC_REQUESTED_RANGE_NOT_SATISFIABLE) {
+        return Tuple.of(null, (InputStream)new ByteArrayInputStream(new byte[0]));
+      }
+      throw serviceException;
+    } finally {
+      // Only close scope/span if we didn't hand over a stream
+      if (filterStream == null) {
+        scope.close();
+        span.end(HttpStorageRpcSpans.END_SPAN_OPTIONS);
+      }      
+    }
+  }
+  
   @Override
   public Tuple<String, byte[]> read(
       StorageObject from, Map<Option, ?> options, long position, int bytes) {
