@@ -4,7 +4,7 @@
   <groupId>com.google.cloud</groupId>
   <artifactId>google-cloud-storage-parent</artifactId>
   <packaging>pom</packaging>
-  <version>1.113.14</version><!-- {x-version-update:google-cloud-storage:current} -->
+  <version>1.113.14-arkivum</version><!-- {x-version-update:google-cloud-storage:current} -->
   <name>Storage Parent</name>
   <url>https://github.com/googleapis/java-storage</url>
   <description>
@@ -42,13 +42,10 @@
     <system>GitHub Issues</system>
   </issueManagement>
   <distributionManagement>
-    <snapshotRepository>
-      <id>sonatype-nexus-snapshots</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
     <repository>
-      <id>sonatype-nexus-staging</id>
-      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+      <id>nexus</id>
+      <name>Arkivum Internal Releases</name>
+      <url>http://nexus.int.dev.6dg.arkivum.net/repository/maven-releases/</url>
     </repository>
   </distributionManagement>
   <licenses>
@@ -146,6 +143,16 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-dependency-plugin</artifactId>
+        </plugin>
+        <plugin>
+          <groupId>org.sonatype.plugins</groupId>
+          <artifactId>nexus-staging-maven-plugin</artifactId>
+          <version>1.6.8</version>
+          <extensions>true</extensions>
+          <configuration>
+            <!-- Disable use of enterprise nexus features -->
+            <skipStaging>true</skipStaging>
+          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>

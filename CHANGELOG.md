@@ -1,5 +1,11 @@
 # Changelog
 
+### [1.113.14-arkivum](https://www.github.com/googleapis/java-storage/compare/v1.113.14...v1.113.14-arkivum) (2021-04-14)
+
+### Bug Fixes
+
+* Make BlobReadChannel wrap an open InputStream rather than making discrete requests for every fetch
+
 ### [1.113.14](https://www.github.com/googleapis/java-storage/compare/v1.113.13...v1.113.14) (2021-03-11)
 
 
